@@ -7,11 +7,12 @@
 #include <linux/proc_fs.h>
 #include <linux/device.h>
 #include <linux/version.h>
+#include <linux/seq_file.h>
 #include <asm/uaccess.h>
 
 #include "linux_cdev_driver.h"
 
-#define PROC_ONLY_FOR_READ 0
+#define PROC_ONLY_FOR_READ 1
 
 /*主设备和从设备号变量*/
 static int my_dev_major = 0;
@@ -176,6 +177,36 @@ static ssize_t my_attr_store(struct device* dev, struct device_attribute* attr, 
 static DEVICE_ATTR(my_attr, S_IRUGO | S_IWUSR, my_attr_show, my_attr_store);
 
 #if(LINUX_VERSION_CODE>=KERNEL_VERSION(2,6,37))
+#if PROC_ONLY_FOR_READ
+/*打开proc文件方法*/
+static int my_proc_open(struct inode* inode, struct file* filp);
+/*proc打印信息方法*/
+static int my_proc_show(struct seq_file *m, void *v);
+
+/*proc文件操作方法表*/
+static struct file_operations my_proc_fops = {
+	.owner = THIS_MODULE,
+	.open = my_proc_open,
+	.release = single_release,
+	.read = seq_read,
+	.llseek	= seq_lseek,
+};
+
+/*打开proc文件方法*/
+static int my_proc_open(struct inode* inode, struct file* filp)
+{
+	printk("Call %s line %d\n",__FUNCTION__,__LINE__);
+
+	return single_open(filp, my_proc_show, NULL);
+}
+
+/*proc打印信息方法*/
+static int my_proc_show(struct seq_file *m, void *v)
+{
+	seq_printf(m,"lix driver version = %s\n", MY_DRIVER_VERSION);
+	return 0;
+}
+#else
 /*proc文件操作方法*/
 static int my_proc_open(struct inode* inode, struct file* filp);
 static int my_proc_release(struct inode* inode, struct file* filp);
@@ -191,7 +222,7 @@ static struct file_operations my_proc_fops = {
 	.write = my_proc_write,
 };
 
-/*打开设备方法*/
+/*打开proc文件方法*/
 static int my_proc_open(struct inode* inode, struct file* filp)
 {
 	printk("Call %s line %d\n",__FUNCTION__,__LINE__);
@@ -208,14 +239,14 @@ static int my_proc_open(struct inode* inode, struct file* filp)
 	return 0;
 }
 
-/*设备文件释放时调用，空实现*/
+/*proc文件释放时调用，空实现*/
 static int my_proc_release(struct inode* inode, struct file* filp)
 {
 	printk("Call %s line %d\n",__FUNCTION__,__LINE__);
 	return 0;
 }
 
-/*读取设备的寄存器val的值*/
+/*读取proc文件方法*/
 static ssize_t my_proc_read(struct file* filp, char __user *buf, size_t count, loff_t* f_pos)
 {
 	ssize_t err = 0;
@@ -244,7 +275,7 @@ out:
 	return err;
 }
 
-/*写设备的寄存器值val*/
+/*写proc文件方法*/
 static ssize_t my_proc_write(struct file* filp, const char __user *buf, size_t count, loff_t* f_pos)
 {
 	ssize_t err = 0;
@@ -272,8 +303,9 @@ out:
 	up(&(dev->sem));
 	return err;
 }
+#endif //PROC_ONLY_FOR_READ
 #else
-/*读取设备寄存器val的值，保存在page缓冲区中*/
+/*读取proc文件方法*/
 static ssize_t my_proc_read(char* page, char** start, off_t off, int count, int* eof, void* data)
 {
 	printk("Call %s line %d\n",__FUNCTION__,__LINE__);
@@ -282,10 +314,11 @@ static ssize_t my_proc_read(char* page, char** start, off_t off, int count, int*
         return 0;
     }
 
+	/*读取设备寄存器val的值，保存在page缓冲区中*/
     return get_val(my_dev, page);
 }
 
-/*把缓冲区的值buff保存到设备寄存器val中去*/
+/*写proc文件方法*/
 static ssize_t my_proc_write(struct file* filp, const char __user *buff, unsigned long len, void* data)
 {
     int err = 0;
@@ -310,13 +343,14 @@ static ssize_t my_proc_write(struct file* filp, const char __user *buff, unsigne
         goto out;
     }
 
+	/*把缓冲区的值buff保存到设备寄存器val中去*/
     err = set_val(my_dev, page, len);
 
 out:
     free_page((unsigned long)page);
     return err;
 }
-#endif
+#endif //(LINUX_VERSION_CODE>=KERNEL_VERSION(2,6,37))
 
 /*创建/proc/MY_DEVICE_PROC_NAME文件*/
 struct proc_dir_entry* entry;
